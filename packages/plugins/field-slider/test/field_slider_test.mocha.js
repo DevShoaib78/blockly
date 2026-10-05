@@ -11,6 +11,7 @@ const {
   assertSliderFieldDefault,
 } = require('./field_slider_test_helpers.mocha');
 const {testHelpers} = require('@blockly/dev-tools');
+const Blockly = require('blockly');
 const {FieldSlider} = require('../src/index');
 
 const {
@@ -399,6 +400,107 @@ suite('FieldSlider', function () {
         );
         assertSliderField(field, -Infinity, Infinity, 1, 0);
       });
+    });
+  });
+
+  suite('Editor', function () {
+    setup(function () {
+      this.jsdomCleanup = require('jsdom-global')(
+        '<!DOCTYPE html><div id="blocklyDiv"></div>',
+      );
+      global.SVGElement = window.SVGElement;
+      // Blockly's focus handling constructs FocusEvent, which jsdom exposes on
+      // window but not as a global.
+      global.FocusEvent = window.FocusEvent;
+      // jsdom doesn't provide requestAnimationFrame/cancelAnimationFrame, which
+      // block rendering relies on. Route them through (faked) timers so they
+      // exist and can be flushed deterministically in teardown.
+      this.clock = sinon.useFakeTimers();
+      window.requestAnimationFrame = (cb) => setTimeout(cb, 0);
+      window.cancelAnimationFrame = (id) => clearTimeout(id);
+      this.workspace = Blockly.inject('blocklyDiv', {media: 'media/'});
+
+      if (!Blockly.Blocks['slider_block']) {
+        Blockly.defineBlocksWithJsonArray([
+          {
+            type: 'slider_block',
+            message0: '%1',
+            args0: [
+              {
+                type: 'field_slider',
+                name: 'FIELD',
+                value: 1,
+                min: 0,
+                max: 10,
+                precision: 1,
+              },
+            ],
+          },
+        ]);
+      }
+      this.block = this.workspace.newBlock('slider_block');
+      this.block.initSvg();
+      this.block.render();
+      this.field = this.block.getField('FIELD');
+
+      // Open the editor so the test drives the real <input type="range"> and
+      // the real text editor rather than stand-ins.
+      this.field.showEditor_();
+      this.slider =
+        Blockly.DropDownDiv.getContentDiv().querySelector('input.fieldSlider');
+      this.textInput = this.field.htmlInput_;
+    });
+
+    teardown(function () {
+      Blockly.DropDownDiv.hideWithoutAnimation();
+      Blockly.WidgetDiv.hide();
+      this.workspace.dispose();
+      this.clock.runAll();
+      sinon.restore();
+      this.jsdomCleanup();
+    });
+
+    /**
+     * Simulate the user moving the slider knob to the given value.
+     * @param {HTMLInputElement} slider The range input.
+     * @param {string} value The value to drag to.
+     */
+    const dragSliderTo = function (slider, value) {
+      slider.value = value;
+      slider.dispatchEvent(new Event('input', {bubbles: true}));
+    };
+
+    /**
+     * Simulate the user typing the given value into the text editor.
+     * @param {HTMLInputElement} textInput The text editor input.
+     * @param {string} value The value to type.
+     */
+    const typeIntoEditor = function (textInput, value) {
+      textInput.value = value;
+      textInput.dispatchEvent(new Event('input', {bubbles: true}));
+      // The field updates the slider when the block rerenders, which is
+      // queued for the next animation frame.
+      Blockly.renderManagement.triggerQueuedRenders();
+    };
+
+    test('slider shows the initial value', function () {
+      assert.equal(this.slider.value, '1');
+    });
+
+    test('moving the slider updates the field', function () {
+      dragSliderTo(this.slider, '5');
+      assertFieldValue(this.field, 5);
+    });
+
+    test('typing into the editor moves the slider', function () {
+      typeIntoEditor(this.textInput, '7');
+      assert.equal(this.slider.value, '7');
+    });
+
+    test('typing into the editor still moves the slider after a drag', function () {
+      dragSliderTo(this.slider, '5');
+      typeIntoEditor(this.textInput, '8');
+      assert.equal(this.slider.value, '8');
     });
   });
 });

@@ -231,7 +231,10 @@ export class FieldSlider extends Blockly.FieldNumber {
     if (!this.sliderInput) {
       return;
     }
-    this.sliderInput.setAttribute('value', `${this.getValue()}`);
+    // Assign the property, not the attribute. Once the user has moved the
+    // slider, a range input ignores changes to its `value` attribute, so the
+    // slider would stop following values typed into the text editor.
+    this.sliderInput.value = `${this.getValue()}`;
   }
   /* eslint-enable @typescript-eslint/naming-convention */
 }
